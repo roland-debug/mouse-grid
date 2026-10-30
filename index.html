@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Mouse Grid">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <title>Slow Motion Mouse Grid</title>
+  <style>
+    * {box-sizing:border-box} html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#fff;color:#111;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    main{height:100%;height:100dvh;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+    canvas{display:block;flex:1;min-height:0;width:100%;background:white;touch-action:none}
+    .controls{flex:none;padding:12px 18px 14px;background:#fff;border-top:1px solid #ddd}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:14px;font-weight:600}
+    input[type=range]{display:block;width:100%;margin:16px 0;accent-color:#111}
+    .actions{display:flex;gap:8px;align-items:center;justify-content:space-between}
+    button{border:1px solid #111;border-radius:9px;padding:10px 12px;background:#111;color:#fff;font:inherit;font-size:13px}
+    #state{font-size:11px;color:#555;line-height:1.3;flex:1} .muted{color:#666}
+  </style>
+</head>
+<body>
+<main>
+  <canvas id="grid" aria-label="Langsam bewegtes Schwarz-Weiss-Netz aus Linien und Punkten"></canvas>
+  <section class="controls">
+    <div class="top"><label for="speed">Bewegungsgeschwindigkeit</label><output id="value">0,35×</output></div>
+    <input id="speed" type="range" min="0.05" max="2" step="0.05" value="0.35">
+    <div class="actions"><span id="state" role="status">Tippe auf „Display wach halten“.</span><button id="wake">Display wach halten</button></div>
+  </section>
+</main>
+<script>
+(() => {
+  'use strict';
+  const canvas = document.getElementById('grid');
+  const ctx = canvas.getContext('2d', {alpha:false});
+  const speedControl = document.getElementById('speed');
+  const speedValue = document.getElementById('value');
+  const state = document.getElementById('state');
+  const wakeButton = document.getElementById('wake');
+  let width=1,height=1,scale=1,phase=0,previous=0;
+  let wakeLock=null,requestedWake=false;
+  const columns=10,rows=17;
+  function resize(){
+    const rect=canvas.getBoundingClientRect();
+    width=Math.max(1,rect.width);height=Math.max(1,rect.height);
+    scale=Math.min(window.devicePixelRatio||1,3);
+    canvas.width=Math.round(width*scale); canvas.height=Math.round(height*scale);
+    ctx.setTransform(scale,0,0,scale,0,0);
+  }
+  new ResizeObserver(resize).observe(canvas);resize();
+  function frame(timestamp){
+    if(!previous)previous=timestamp;
+    const elapsed=Math.min((timestamp-previous)/1000,0.1);
+    previous=timestamp;
+    phase+=elapsed*Number(speedControl.value);
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);
+    const margin=16,dx=Math.max(1,width-2*margin)/(columns-1),dy=Math.max(1,height-2*margin)/(rows-1);
+    const amplitude=Math.min(dx,dy)*0.23;
+    const points=[];
+    for(let row=0;row<rows;row++){
+      for(let col=0;col<columns;col++){
+        const p=col*.73+row*.51;
+        const x=margin+col*dx+amplitude*(.7*Math.sin(phase*.39+p)+.3*Math.sin(phase*.21+p*1.7));
+        const y=margin+row*dy+amplitude*(.7*Math.cos(phase*.33+p*1.3)+.3*Math.sin(phase*.17+p));
+        points.push([x,y]);
+      }
+    }
+    ctx.lineWidth=1.35;ctx.strokeStyle='#000';ctx.beginPath();
+    function connect(a,b){ctx.moveTo(points[a][0],points[a][1]);ctx.lineTo(points[b][0],points[b][1]);}
+    for(let row=0;row<rows;row++)for(let col=0;col<columns;col++){
+      const index=row*columns+col;
+      if(col+1<columns)connect(index,index+1);
+      if(row+1<rows)connect(index,index+columns);
+      if(row+1<rows&&col+1<columns&&(row+col)%3===0)connect(index,index+columns+1);
+    }
+    ctx.stroke();ctx.fillStyle='#000';
+    for(const [x,y] of points){ctx.beginPath();ctx.arc(x,y,2.7,0,2*Math.PI);ctx.fill();}
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  speedControl.addEventListener('input',()=>speedValue.value=Number(speedControl.value).toFixed(2).replace('.',',')+'×');
+  async function requestWake(){
+    if(!('wakeLock' in navigator)){
+      state.textContent='Wake Lock ist hier nicht verfügbar. iOS aktualisieren und als Home-Bildschirm-App öffnen.';
+      return;
+    }
+    try{
+      if(wakeLock)return;
+      const lock=await navigator.wakeLock.request('screen');
+      wakeLock=lock;
+      state.textContent='Display-Wachhalten aktiv, solange die App sichtbar ist.';
+      wakeButton.textContent='Display aktiv';
+      lock.addEventListener('release',()=>{
+        if(wakeLock===lock)wakeLock=null;
+        wakeButton.textContent='Display wach halten';
+        state.textContent='Displayschutz wurde freigegeben. Bei Bedarf erneut aktivieren.';
+      });
+    }catch(e){
+      state.textContent='Wachhalten nicht möglich ('+(e&&e.name?e.name:'Systembeschränkung')+'). Stromsparmodus prüfen.';
+    }
+  }
+  wakeButton.addEventListener('click',()=>{requestedWake=true;requestWake();});
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='visible'&&requestedWake)requestWake();
+  });
+  if('serviceWorker' in navigator && location.protocol==='https:'){
+    window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+  }
+})();
+</script>
+</body>
+</html>
