@@ -24,9 +24,9 @@
 </head>
 <body>
 <main>
-  <canvas id="grid" aria-label="Langsam bewegtes Schwarz-Weiss-Netz aus Linien und Punkten"></canvas>
+  <canvas id="grid" aria-label="Als Ganzes horizontal schwingendes Schwarz-Weiss-Netz aus Linien und Punkten"></canvas>
   <section class="controls">
-    <div class="top"><label for="speed">Bewegungsgeschwindigkeit</label><output id="value">0,35×</output></div>
+    <div class="top"><label for="speed">Hin-und-her-Geschwindigkeit</label><output id="value">0,35×</output></div>
     <input id="speed" type="range" min="0.05" max="2" step="0.05" value="0.35">
     <div class="actions"><span id="state" role="status">Tippe auf „Display wach halten“.</span><button id="wake">Display wach halten</button></div>
   </section>
@@ -42,7 +42,6 @@
   const wakeButton = document.getElementById('wake');
   let width=1,height=1,scale=1,phase=0,previous=0;
   let wakeLock=null,requestedWake=false;
-  const columns=10,rows=17;
   function resize(){
     const rect=canvas.getBoundingClientRect();
     width=Math.max(1,rect.width);height=Math.max(1,rect.height);
@@ -57,27 +56,40 @@
     previous=timestamp;
     phase+=elapsed*Number(speedControl.value);
     ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);
-    const margin=16,dx=Math.max(1,width-2*margin)/(columns-1),dy=Math.max(1,height-2*margin)/(rows-1);
-    const amplitude=Math.min(dx,dy)*0.23;
+    // Das gesamte Netz schwingt als starres Bild langsam nach links und rechts.
+    // Keine zeitabhängige Einzelbewegung der Punkte.
+    const spacingX=Math.max(25,width/9);
+    const spacingY=Math.max(25,height/16);
+    const overscan=2; // Muster reicht auch bei horizontaler Verschiebung bis zum Rand.
+    const drawColumns=Math.ceil(width/spacingX)+1+overscan*2;
+    const drawRows=Math.ceil(height/spacingY)+1+overscan*2;
+    const travel=Math.min(30,width*0.08); // Maximaler Ausschlag in CSS-Pixeln.
+    const offsetX=Math.sin(phase*0.42)*travel;
     const points=[];
-    for(let row=0;row<rows;row++){
-      for(let col=0;col<columns;col++){
-        const p=col*.73+row*.51;
-        const x=margin+col*dx+amplitude*(.7*Math.sin(phase*.39+p)+.3*Math.sin(phase*.21+p*1.7));
-        const y=margin+row*dy+amplitude*(.7*Math.cos(phase*.33+p*1.3)+.3*Math.sin(phase*.17+p));
+    for(let row=0;row<drawRows;row++){
+      for(let col=0;col<drawColumns;col++){
+        const gridX=col-overscan;
+        const gridY=row-overscan;
+        const p=gridX*.73+gridY*.51;
+        // Einmaliges, festes Wellenmuster: es ändert sich nicht im Laufe der Zeit.
+        const x=gridX*spacingX+spacingX*.19*Math.sin(p)+offsetX;
+        const y=gridY*spacingY+spacingY*.19*Math.cos(p*1.3);
         points.push([x,y]);
       }
     }
     ctx.lineWidth=1.35;ctx.strokeStyle='#000';ctx.beginPath();
     function connect(a,b){ctx.moveTo(points[a][0],points[a][1]);ctx.lineTo(points[b][0],points[b][1]);}
-    for(let row=0;row<rows;row++)for(let col=0;col<columns;col++){
-      const index=row*columns+col;
-      if(col+1<columns)connect(index,index+1);
-      if(row+1<rows)connect(index,index+columns);
-      if(row+1<rows&&col+1<columns&&(row+col)%3===0)connect(index,index+columns+1);
+    for(let row=0;row<drawRows;row++)for(let col=0;col<drawColumns;col++){
+      const index=row*drawColumns+col;
+      if(col+1<drawColumns)connect(index,index+1);
+      if(row+1<drawRows)connect(index,index+drawColumns);
+      if(row+1<drawRows&&col+1<drawColumns&&(row+col)%3===0)connect(index,index+drawColumns+1);
     }
     ctx.stroke();ctx.fillStyle='#000';
-    for(const [x,y] of points){ctx.beginPath();ctx.arc(x,y,2.7,0,2*Math.PI);ctx.fill();}
+    for(const [x,y] of points){
+      if(x < -3 || x > width+3 || y < -3 || y > height+3)continue;
+      ctx.beginPath();ctx.arc(x,y,2.7,0,2*Math.PI);ctx.fill();
+    }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
